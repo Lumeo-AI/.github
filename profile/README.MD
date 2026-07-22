@@ -51,7 +51,7 @@ Solis is a small research model trained on a synthetic corpus — good for light
 | **Prism** | `Prism-0.1` | — | — | — |
 | **Beacon** | `Beacon-0.1` | — | — | — |
 
-<sub>Updated automatically — last run 2026-07-22 04:36 UTC.</sub>
+<sub>Updated automatically — last run 2026-07-22 04:37 UTC.</sub>
 
 <!-- stats:end -->
 
