@@ -38,7 +38,7 @@ A from-scratch mixture-of-experts network — every token is routed through spec
 - **46.1M** parameters — **14.3M** active per token
 - **8** experts / layer, top-2 routing
 - **6** layers · **384** wide · **6** attention heads
-- **260**-token byte-level vocabulary
+- **260**-token byte-level vocabulary, learned on our own corpus
 - **512** token context, rotary positions + RMSNorm
 
 <!-- solis:end -->
@@ -51,9 +51,9 @@ Solis is a small research model trained on a synthetic corpus — good for light
 
 | Public repos | Stars | Commits | Languages | Last push |
 |---|---|---|---|---|
-| 1 | 0 | 1 | 1 | 2026-07-21 |
+| 2 | 0 | 7 | 2 | 2026-07-22 |
 
-<sub>Generated from the GitHub API and `Solis-1.0/zeus/config.py` — last run 2026-07-22 04:42 UTC.</sub>
+<sub>Generated from the GitHub API and `Solis-1.0/zeus/config.py` — last run 2026-07-22 04:53 UTC.</sub>
 
 <!-- stats:end -->
 

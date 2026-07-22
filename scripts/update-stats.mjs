@@ -64,27 +64,60 @@ const lastPush = counted.map((r) => r.pushed_at).sort().at(-1);
 
 // --- Solis architecture, read straight out of the training code -------------
 
-const cfg = Object.fromEntries(
-  [...(await file("Solis-1.0", "zeus/config.py")).matchAll(
-    /^\s{4}(\w+):\s*(?:int|float)\s*=\s*([\deE.+-]+)/gm,
-  )].map(([, k, v]) => [k, Number(v)]),
-);
-
-for (const k of ["vocab_size", "dim", "n_layers", "n_heads", "max_seq_len",
-                 "n_experts", "n_experts_per_tok", "expert_hidden_mult"]) {
-  if (!Number.isFinite(cfg[k])) throw new Error(`could not parse ${k} from config.py`);
+// The package was renamed zeus -> solis and the config schema grew (GQA,
+// shared experts, an explicit expert width). Try the current path first and
+// fall back, so a rename in the model repo doesn't break the profile.
+async function loadConfig() {
+  for (const path of ["solis/config.py", "zeus/config.py"]) {
+    try {
+      const src = await file("Solis-1.0", path);
+      const cfg = Object.fromEntries(
+        [...src.matchAll(/^\s{4}(\w+):\s*(?:int|float|bool)\s*=\s*([\w.+-]+)/gm)].map(
+          ([, k, v]) => [k, v === "True" ? true : v === "False" ? false : Number(v)],
+        ),
+      );
+      if (Number.isFinite(cfg.dim) && Number.isFinite(cfg.n_layers)) return cfg;
+    } catch {
+      // try the next layout
+    }
+  }
+  throw new Error("no parsable config.py found in Solis-1.0");
 }
 
-// Matches zeus/model.py: no biases anywhere, lm_head weight-tied to tok_emb,
-// SwiGLU experts (w1 gate + w3 up + w2 down), two RMSNorms per block.
-const hidden = cfg.dim * cfg.expert_hidden_mult;
-const embed = cfg.vocab_size * cfg.dim;
-const attn = 4 * cfg.dim ** 2;
-const expert = 3 * cfg.dim * hidden;
-const perBlock = (experts) => attn + experts * expert + cfg.dim * cfg.n_experts + 2 * cfg.dim;
+const cfg = await loadConfig();
+const swiglu = (hidden) => 3 * cfg.dim * hidden;
 
-const total = embed + cfg.n_layers * perBlock(cfg.n_experts) + cfg.dim;
-const active = embed + cfg.n_layers * perBlock(cfg.n_experts_per_tok) + cfg.dim;
+// Mirrors SolisConfig.param_breakdown(): bias-free projections, SwiGLU experts
+// (gate + up + down), two RMSNorms per block plus a final one.
+function countParams(routedPerToken) {
+  const d = cfg.dim;
+  const tied = cfg.tie_embeddings ?? true;
+  const embed = cfg.vocab_size * d * (tied ? 1 : 2);
+  const norms = d * (2 * cfg.n_layers + 1);
+
+  if (Number.isFinite(cfg.expert_hidden)) {
+    // Current schema: grouped-query attention, a dense first layer, and a
+    // shared expert that every token passes through.
+    const qDim = cfg.n_heads * cfg.head_dim;
+    const kvDim = cfg.n_kv_heads * cfg.head_dim;
+    const attn =
+      (2 * d * qDim + 2 * d * kvDim + (cfg.qk_norm ? 2 * cfg.head_dim : 0)) * cfg.n_layers;
+    const dense = swiglu(cfg.dense_hidden) * cfg.dense_layers;
+    const moe =
+      (swiglu(cfg.expert_hidden) * (routedPerToken + cfg.n_shared_experts) + d * cfg.n_experts) *
+      (cfg.n_layers - cfg.dense_layers);
+    return embed + attn + dense + moe + norms;
+  }
+
+  // Original schema: dense multi-head attention, every layer an MoE layer.
+  const attn = 4 * d ** 2 * cfg.n_layers;
+  const moe =
+    (swiglu(d * cfg.expert_hidden_mult) * routedPerToken + d * cfg.n_experts) * cfg.n_layers;
+  return embed + attn + moe + norms;
+}
+
+const total = countParams(cfg.n_experts);
+const active = countParams(cfg.n_experts_per_tok);
 
 // --- blocks -----------------------------------------------------------------
 
@@ -101,10 +134,15 @@ const blocks = {
 
   solis: [
     `- **${millions(total)}** parameters — **${millions(active)}** active per token`,
-    `- **${cfg.n_experts}** experts / layer, top-${cfg.n_experts_per_tok} routing`,
-    `- **${cfg.n_layers}** layers · **${cfg.dim}** wide · **${cfg.n_heads}** attention heads`,
-    `- **${cfg.vocab_size}**-token byte-level vocabulary`,
-    `- **${cfg.max_seq_len}** token context, rotary positions + RMSNorm`,
+    `- **${cfg.n_experts}** experts / layer, top-${cfg.n_experts_per_tok} routing` +
+      (cfg.n_shared_experts ? `, plus ${cfg.n_shared_experts} shared` : ""),
+    `- **${cfg.n_layers}** layers · **${cfg.dim}** wide · ` +
+      (cfg.n_kv_heads
+        ? `**${cfg.n_heads}** query / **${cfg.n_kv_heads}** KV heads (GQA)`
+        : `**${cfg.n_heads}** attention heads`),
+    `- **${cfg.vocab_size.toLocaleString("en-US")}**-token ` +
+      `${cfg.expert_hidden ? "BPE" : "byte-level"} vocabulary, learned on our own corpus`,
+    `- **${cfg.max_seq_len.toLocaleString("en-US")}** token context, rotary positions + RMSNorm`,
   ],
 
   stats: [
