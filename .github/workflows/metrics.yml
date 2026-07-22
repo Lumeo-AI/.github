@@ -1,0 +1,75 @@
+name: Metrics
+
+on:
+  schedule:
+    - cron: "17 6 * * *" # daily, 06:17 UTC
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/metrics.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: metrics
+  cancel-in-progress: true
+
+jobs:
+  metrics:
+    runs-on: ubuntu-latest
+    env:
+      # Secrets are not readable from a step `if`, so surface it as env first.
+      METRICS_TOKEN_SET: ${{ secrets.METRICS_TOKEN != '' }}
+    steps:
+      # Fail fast and legibly — metrics itself only reports "Bad credentials".
+      - name: Require METRICS_TOKEN
+        if: env.METRICS_TOKEN_SET != 'true'
+        run: |
+          echo "::error::METRICS_TOKEN is not set. Create a personal access token with the public_repo, read:org and read:user scopes, then add it as a repository secret named METRICS_TOKEN."
+          exit 1
+
+      # Organization overview, embedded in profile/README.md.
+      - name: Organization overview
+        uses: lowlighter/metrics@v3.34
+        with:
+          # A personal access token is required — the default GITHUB_TOKEN
+          # cannot reach the organization-wide GraphQL data metrics reads.
+          # Scopes: public_repo, read:org, read:user.
+          token: ${{ secrets.METRICS_TOKEN }}
+          committer_token: ${{ secrets.GITHUB_TOKEN }}
+          committer_message: "chore: refresh organization metrics"
+          user: Lumeo-AI
+          template: classic
+          filename: profile/metrics.svg
+          base: header, activity, community, repositories, metadata
+          config_timezone: Etc/UTC
+          plugin_languages: yes
+          plugin_languages_details: bytes-size, percentage
+          plugin_languages_limit: 6
+          plugin_lines: yes
+          plugin_stargazers: yes
+          plugin_stargazers_charts: yes
+
+      # Solis repository card. Rendered as PNG rather than SVG because the
+      # Hugging Face model card embeds it from raw.githubusercontent, and
+      # metrics builds its SVGs out of <foreignObject>, which browsers do not
+      # render reliably when the file is loaded through an <img> off GitHub.
+      - name: Solis repository card
+        uses: lowlighter/metrics@v3.34
+        with:
+          token: ${{ secrets.METRICS_TOKEN }}
+          committer_token: ${{ secrets.GITHUB_TOKEN }}
+          committer_message: "chore: refresh Solis repository metrics"
+          user: Lumeo-AI
+          repo: Solis-1.0
+          template: repository
+          filename: profile/metrics.solis.png
+          config_output: png
+          base: ""
+          plugin_languages: yes
+          plugin_lines: yes
+          plugin_contributors: yes
+          plugin_stargazers: yes
+          plugin_stargazers_charts: yes
