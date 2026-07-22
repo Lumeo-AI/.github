@@ -37,9 +37,9 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet -- profile/README.MD; then
+          if git diff --quiet -- profile/README.md; then
             echo "No stat changes."
           else
-            git commit -m "chore: refresh org stats" -- profile/README.MD
+            git commit -m "chore: refresh org stats" -- profile/README.md
             git push
           fi
